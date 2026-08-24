@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Heart, X } from 'lucide-react';
+import { Heart, X, Play } from 'lucide-react';
 import { useEvent } from '@/hooks/useEvent';
 import { useEventRoom } from '@/hooks/useEventRoom';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -48,9 +48,14 @@ export function PublicGalleryPage() {
             <button
               key={moment.id}
               onClick={() => setSelected(moment)}
-              className="aspect-square overflow-hidden rounded-xl bg-blush shadow-sm"
+              className="relative aspect-square overflow-hidden rounded-xl bg-blush shadow-sm"
             >
               <img src={moment.thumbnailUrl} alt={moment.message ?? 'Momento'} className="h-full w-full object-cover" loading="lazy" />
+              {moment.mediaType === 'video' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                  <Play className="h-8 w-8 fill-white text-white drop-shadow" />
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -62,7 +67,18 @@ export function PublicGalleryPage() {
           onClick={() => setSelected(null)}
         >
           <div className="max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <img src={selected.imageUrl} alt={selected.message ?? 'Momento'} className="max-h-[75vh] w-full rounded-xl object-contain" />
+            {selected.mediaType === 'video' ? (
+              <video
+                src={selected.imageUrl}
+                poster={selected.thumbnailUrl}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-[75vh] w-full rounded-xl object-contain"
+              />
+            ) : (
+              <img src={selected.imageUrl} alt={selected.message ?? 'Momento'} className="max-h-[75vh] w-full rounded-xl object-contain" />
+            )}
             <div className="mt-3 text-center text-white">
               {selected.message && <p className="italic">&ldquo;{selected.message}&rdquo;</p>}
               <p className="mt-1 text-sm text-white/70">

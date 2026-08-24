@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import imageCompression from 'browser-image-compression';
-import { Camera, Heart, Image as ImageIcon, ArrowLeft, X, Plus } from 'lucide-react';
+import { Camera, Heart, Image as ImageIcon, ArrowLeft, X, Plus, Play } from 'lucide-react';
 import { useEvent } from '@/hooks/useEvent';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { uploadWithProgress } from '@/lib/uploadWithProgress';
@@ -11,12 +11,15 @@ import type { Moment } from '@/types';
 type Step = 'landing' | 'choose' | 'form' | 'uploading' | 'success' | 'error';
 type PhotoStatus = 'pending' | 'uploading' | 'done' | 'error';
 
+const MAX_VIDEO_SECONDS = 60;
+
 interface PhotoItem {
   id: string;
   file: File;
   previewUrl: string;
   status: PhotoStatus;
   progress: number;
+  mediaType: 'image' | 'video';
 }
 
 let nextPhotoId = 0;
@@ -29,6 +32,27 @@ let nextPhotoId = 0;
 function localPhotoId(): string {
   nextPhotoId += 1;
   return `photo-${Date.now()}-${nextPhotoId}`;
+}
+
+/**
+ * Best-effort client-side check so guests get instant feedback instead of
+ * waiting for an upload to fail — the server re-validates duration for real
+ * via ffprobe, since this can't be trusted as a security boundary.
+ */
+function getVideoDurationSeconds(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(video.src);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(video.src);
+      reject(new Error('Could not read video metadata'));
+    };
+    video.src = URL.createObjectURL(file);
+  });
 }
 
 export function GuestEventPage() {
@@ -57,8 +81,18 @@ export function GuestEventPage() {
     setCompressing(true);
     setPickError(null);
     try {
-      const newItems = await Promise.all(
-        Array.from(fileList).map(async (file): Promise<PhotoItem> => {
+      const results = await Promise.all(
+        Array.from(fileList).map(async (file): Promise<PhotoItem | null> => {
+          if (file.type.startsWith('video/')) {
+            try {
+              const duration = await getVideoDurationSeconds(file);
+              if (duration > MAX_VIDEO_SECONDS) return null;
+            } catch {
+              // Couldn't read duration client-side — let the server be the judge.
+            }
+            return { id: localPhotoId(), file, previewUrl: URL.createObjectURL(file), status: 'pending', progress: 0, mediaType: 'video' };
+          }
+
           try {
             const compressed = await imageCompression(file, {
               maxSizeMB: 1.5,
@@ -66,16 +100,27 @@ export function GuestEventPage() {
               useWebWorker: true,
               fileType: 'image/jpeg',
             });
-            return { id: localPhotoId(), file: compressed, previewUrl: URL.createObjectURL(compressed), status: 'pending', progress: 0 };
+            return { id: localPhotoId(), file: compressed, previewUrl: URL.createObjectURL(compressed), status: 'pending', progress: 0, mediaType: 'image' };
           } catch {
-            return { id: localPhotoId(), file, previewUrl: URL.createObjectURL(file), status: 'pending', progress: 0 };
+            return { id: localPhotoId(), file, previewUrl: URL.createObjectURL(file), status: 'pending', progress: 0, mediaType: 'image' };
           }
         })
       );
+
+      const newItems = results.filter((item): item is PhotoItem => item !== null);
+      const rejectedCount = results.length - newItems.length;
+
       setPhotos((prev) => [...prev, ...newItems]);
-      setStep('form');
+      if (rejectedCount > 0) {
+        setPickError(
+          rejectedCount === 1
+            ? `Um vídeo foi ignorado por durar mais de ${MAX_VIDEO_SECONDS} segundos.`
+            : `${rejectedCount} vídeos foram ignorados por durarem mais de ${MAX_VIDEO_SECONDS} segundos.`
+        );
+      }
+      if (newItems.length > 0) setStep('form');
     } catch {
-      setPickError('Não foi possível preparar as fotografias. Tente novamente.');
+      setPickError('Não foi possível preparar os ficheiros. Tente novamente.');
     } finally {
       setCompressing(false);
     }
@@ -204,7 +249,7 @@ export function GuestEventPage() {
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         capture="environment"
         className="hidden"
         onChange={(e) => {
@@ -215,7 +260,7 @@ export function GuestEventPage() {
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -307,7 +352,7 @@ function ChooseSource({
             className="flex items-center justify-center gap-3 rounded-2xl border border-gold/30 bg-white px-6 py-5 font-medium text-ink shadow-sm active:scale-[0.98]"
           >
             <Camera className="h-5 w-5 text-gold-dark" />
-            Tirar fotografia
+            Tirar foto ou vídeo
           </button>
           <button
             onClick={onGallery}
@@ -316,7 +361,9 @@ function ChooseSource({
             <ImageIcon className="h-5 w-5 text-gold-dark" />
             Escolher da galeria
           </button>
-          <p className="text-center text-sm text-ink/50">Pode escolher várias fotos da galeria de uma só vez.</p>
+          <p className="text-center text-sm text-ink/50">
+            Pode escolher várias fotos de uma vez. Vídeos até {MAX_VIDEO_SECONDS} segundos.
+          </p>
         </div>
       )}
     </div>
@@ -357,16 +404,25 @@ function MomentForm({
       <BackButton onClick={onBack} />
 
       <p className="mt-4 text-sm text-ink/60">
-        {photos.length === 1 ? '1 fotografia selecionada' : `${photos.length} fotografias selecionadas`}
+        {photos.length === 1 ? '1 momento selecionado' : `${photos.length} momentos selecionados`}
       </p>
 
       <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
         {photos.map((photo) => (
           <div key={photo.id} className="relative shrink-0">
-            <img src={photo.previewUrl} alt="" className="h-24 w-24 rounded-xl object-cover shadow-sm" />
+            {photo.mediaType === 'video' ? (
+              <>
+                <video src={photo.previewUrl} muted playsInline className="h-24 w-24 rounded-xl object-cover shadow-sm" />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-black/10">
+                  <Play className="h-6 w-6 fill-white text-white drop-shadow" />
+                </div>
+              </>
+            ) : (
+              <img src={photo.previewUrl} alt="" className="h-24 w-24 rounded-xl object-cover shadow-sm" />
+            )}
             <button
               onClick={() => onRemove(photo.id)}
-              aria-label="Remover fotografia"
+              aria-label="Remover"
               className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-ink text-white shadow"
             >
               <X className="h-4 w-4" />
@@ -388,7 +444,7 @@ function MomentForm({
       {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
 
       <div className="mt-2 flex gap-4 text-sm text-gold-dark underline underline-offset-4">
-        <button onClick={onAddCamera}>Tirar mais uma</button>
+        <button onClick={onAddCamera}>Tirar mais</button>
         <button onClick={onAddGallery}>Escolher mais da galeria</button>
       </div>
 

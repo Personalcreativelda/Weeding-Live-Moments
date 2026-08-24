@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, X, CheckCheck, XCircle } from 'lucide-react';
+import { Check, X, CheckCheck, XCircle, Play } from 'lucide-react';
 import { useAdmin } from '@/context/AdminContext';
 import { useEventRoom } from '@/hooks/useEventRoom';
 import { api } from '@/lib/api';
@@ -97,6 +97,11 @@ export function ModerationPage() {
             <div key={moment.id} className="overflow-hidden rounded-2xl border border-gold/20 bg-white">
               <div className="relative aspect-square">
                 <img src={moment.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+                {moment.mediaType === 'video' && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/10">
+                    <Play className="h-6 w-6 fill-white text-white drop-shadow" />
+                  </div>
+                )}
                 <input
                   type="checkbox"
                   checked={selected.has(moment.id)}

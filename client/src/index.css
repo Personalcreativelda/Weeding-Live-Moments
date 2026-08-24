@@ -43,6 +43,32 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+
+  .animate-ken-burns {
+    animation-name: kenBurns;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+
+  .animate-caption-rise {
+    animation-name: captionRise;
+    animation-duration: 0.9s;
+    animation-timing-function: ease-out;
+    animation-fill-mode: both;
+  }
+
+  .animate-progress-fill {
+    animation-name: progressFill;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+
+  .animate-ambient-drift {
+    animation-name: ambientDrift;
+    animation-duration: 12s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
 }
 
 @keyframes fadeIn {
@@ -53,5 +79,47 @@
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* Live Wall: slow continuous zoom on the featured photo/video for a cinematic feel. */
+@keyframes kenBurns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+
+/* Live Wall: caption settles in a beat after the media fades in. */
+@keyframes captionRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Live Wall: slim progress bar filling across the current slide's dwell time. */
+@keyframes progressFill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* Live Wall: gentle ambient drift on the background glow, so the screen never feels static. */
+@keyframes ambientDrift {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.15);
   }
 }

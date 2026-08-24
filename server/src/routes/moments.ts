@@ -5,6 +5,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import { supabaseAdmin } from '../lib/supabase/client.js';
 import { uploadObject } from '../lib/minio/client.js';
 import { processImage } from '../services/uploads/imageProcess.js';
+import { processVideo } from '../services/uploads/videoProcess.js';
 import { toPublicMoment, type MomentRow } from '../services/moments/present.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
@@ -19,11 +20,15 @@ export const momentsRouter = Router();
 
 const MOMENT_SELECT = '*, tables(number, name)';
 
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_VIDEO_MIME = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+const ALLOWED_MIME = new Set([...ALLOWED_IMAGE_MIME, ...ALLOWED_VIDEO_MIME]);
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: env.MAX_IMAGE_SIZE_MB * 1024 * 1024 },
+  // multer only knows the total byte ceiling up front; images are checked
+  // again against MAX_IMAGE_SIZE_MB once we know which type was actually sent.
+  limits: { fileSize: Math.max(env.MAX_IMAGE_SIZE_MB, env.MAX_VIDEO_SIZE_MB) * 1024 * 1024 },
 });
 
 function storagePrefix(eventId: string, date: Date) {
@@ -47,7 +52,11 @@ momentsRouter.post('/events/:eventId/moments', upload.single('photo'), async (re
 
     const sniffed = await fileTypeFromBuffer(file.buffer);
     if (!sniffed || !ALLOWED_MIME.has(sniffed.mime)) {
-      throw new HttpError(400, 'File content does not match an accepted image type');
+      throw new HttpError(400, 'File content does not match an accepted image or video type');
+    }
+    const isVideo = ALLOWED_VIDEO_MIME.has(sniffed.mime);
+    if (!isVideo && file.buffer.byteLength > env.MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      throw new HttpError(400, `Image must be ${env.MAX_IMAGE_SIZE_MB}MB or smaller`);
     }
 
     const { data: event, error: eventError } = await supabaseAdmin
@@ -84,17 +93,24 @@ momentsRouter.post('/events/:eventId/moments', upload.single('photo'), async (re
       tableId = table?.id ?? null;
     }
 
-    logger.info('upload started', { eventId, origin });
-
-    const { original, thumbnail, contentType } = await processImage(file.buffer);
+    logger.info('upload started', { eventId, origin, mediaType: isVideo ? 'video' : 'image' });
 
     const id = uuidv4();
     const prefix = storagePrefix(eventId, new Date());
-    const storageKey = `${prefix}/${id}.webp`;
     const thumbnailKey = `events/${eventId}/thumbnails/${id}.webp`;
+    let storageKey: string;
 
-    await uploadObject(storageKey, original, contentType);
-    await uploadObject(thumbnailKey, thumbnail, contentType);
+    if (isVideo) {
+      const { video, thumbnail, extension, contentType } = await processVideo(file.buffer, sniffed.mime);
+      storageKey = `${prefix}/${id}.${extension}`;
+      await uploadObject(storageKey, video, contentType);
+      await uploadObject(thumbnailKey, thumbnail, 'image/webp');
+    } else {
+      const { original, thumbnail, contentType } = await processImage(file.buffer);
+      storageKey = `${prefix}/${id}.webp`;
+      await uploadObject(storageKey, original, contentType);
+      await uploadObject(thumbnailKey, thumbnail, contentType);
+    }
 
     const deviceHash = hashDevice(ip, deviceId);
 
@@ -105,7 +121,7 @@ momentsRouter.post('/events/:eventId/moments', upload.single('photo'), async (re
         table_id: tableId,
         guest_name: guestName,
         message,
-        media_type: 'image',
+        media_type: isVideo ? 'video' : 'image',
         storage_key: storageKey,
         thumbnail_key: thumbnailKey,
         origin,

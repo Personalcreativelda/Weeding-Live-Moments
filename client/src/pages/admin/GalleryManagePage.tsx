@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Star, X } from 'lucide-react';
+import { Star, X, Play } from 'lucide-react';
 import { useAdmin } from '@/context/AdminContext';
 import { useEventRoom } from '@/hooks/useEventRoom';
 import { api } from '@/lib/api';
@@ -49,7 +49,14 @@ export function GalleryManagePage() {
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {moments.map((moment) => (
             <div key={moment.id} className="group relative overflow-hidden rounded-2xl border border-gold/20 bg-white">
-              <img src={moment.thumbnailUrl} alt="" className="aspect-square w-full object-cover" />
+              <div className="relative">
+                <img src={moment.thumbnailUrl} alt="" className="aspect-square w-full object-cover" />
+                {moment.mediaType === 'video' && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/10">
+                    <Play className="h-6 w-6 fill-white text-white drop-shadow" />
+                  </div>
+                )}
+              </div>
               <div className="flex items-center justify-between p-2">
                 <button
                   onClick={() => highlight(moment.id)}

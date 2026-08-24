@@ -13,7 +13,8 @@ RUN npm run build
 
 # ---- Runtime ----
 FROM node:22-alpine AS runtime
-RUN apk add --no-cache dumb-init
+# ffmpeg/ffprobe: validate short-video duration and extract a poster-frame thumbnail.
+RUN apk add --no-cache dumb-init ffmpeg
 WORKDIR /app
 
 ENV NODE_ENV=production

@@ -77,12 +77,12 @@ export function LiveWallPage() {
     return () => clearInterval(timer);
   }, [wallState, moments.length]);
 
-  // Preload the next couple of images so transitions feel instant.
+  // Preload the next couple of images so transitions feel instant (videos stream on demand).
   useEffect(() => {
     if (moments.length === 0) return;
     for (let offset = 1; offset <= 2; offset += 1) {
       const next = moments[(index + offset) % moments.length];
-      if (next) {
+      if (next && next.mediaType !== 'video') {
         const img = new Image();
         img.src = next.imageUrl;
       }
@@ -96,33 +96,59 @@ export function LiveWallPage() {
   const highlighted = wallState?.highlightMomentId
     ? moments.find((m) => m.id === wallState.highlightMomentId) ?? null
     : null;
+  const showSlideProgress = mode === 'slideshow' && (wallState?.playing ?? true) && moments.length > 1;
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-ink text-white">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#100c09] text-white">
+      <AmbientGlow />
+
       <Header event={event} count={moments.length} />
 
-      <div className="flex flex-1 items-center justify-center px-8 pb-16">
+      <div className="relative z-10 flex flex-1 items-center justify-center px-8 pb-16">
         {mode === 'highlights' && highlighted ? (
-          <FeaturedMoment moment={highlighted} />
+          <FeaturedMoment moment={highlighted} animate={false} />
         ) : mode === 'mosaic' || mode === 'latest' ? (
           <MosaicGrid moments={moments.slice(0, 9)} />
         ) : moments.length > 0 ? (
-          <FeaturedMoment moment={moments[index % moments.length]} key={moments[index % moments.length].id} />
+          <FeaturedMoment moment={moments[index % moments.length]} key={moments[index % moments.length].id} animate />
         ) : (
           <WaitingForMoments hashtag={event.hashtag} />
         )}
       </div>
+
+      {showSlideProgress && (
+        <div className="absolute inset-x-0 bottom-0 z-10 h-1 bg-white/10">
+          <div
+            key={index}
+            className="h-full bg-gold animate-progress-fill"
+            style={{ animationDuration: `${SLIDE_MS}ms` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 function BlackScreen({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-screen w-screen items-center justify-center bg-ink">{children}</div>;
+  return <div className="flex h-screen w-screen items-center justify-center bg-[#100c09]">{children}</div>;
+}
+
+/** A slow-drifting warm glow behind everything so the screen feels alive even between slides. */
+function AmbientGlow() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-[70vmax] w-[70vmax] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-40 blur-3xl animate-ambient-drift"
+      style={{
+        background: 'radial-gradient(circle, rgba(176,137,104,0.35) 0%, rgba(176,137,104,0.08) 45%, transparent 70%)',
+      }}
+    />
+  );
 }
 
 function Header({ event, count }: { event: { coupleName1: string; coupleName2: string; hashtag: string | null }; count: number }) {
   return (
-    <div className="flex items-center justify-between px-10 py-6">
+    <div className="relative z-10 flex items-center justify-between px-10 py-6">
       <div className="flex items-center gap-3">
         <Heart className="h-6 w-6 fill-gold text-gold" />
         <div>
@@ -140,20 +166,44 @@ function Header({ event, count }: { event: { coupleName1: string; coupleName2: s
   );
 }
 
-function FeaturedMoment({ moment }: { moment: Moment }) {
+function FeaturedMoment({ moment, animate }: { moment: Moment; animate: boolean }) {
   return (
-    <div className="animate-[fadeIn_1s_ease] flex max-h-full max-w-4xl flex-col items-center">
-      <img
-        src={moment.imageUrl}
-        alt={moment.message ?? 'Momento'}
-        className="max-h-[65vh] rounded-2xl object-contain shadow-2xl"
-      />
+    <div className={`flex max-h-full max-w-4xl flex-col items-center ${animate ? 'animate-[fadeIn_1.1s_ease]' : ''}`}>
+      <div className="relative max-h-[65vh] overflow-hidden rounded-2xl shadow-2xl shadow-black/60">
+        {moment.mediaType === 'video' ? (
+          <video
+            src={moment.imageUrl}
+            poster={moment.thumbnailUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            className={`max-h-[65vh] object-contain ${animate ? 'animate-ken-burns' : ''}`}
+            style={animate ? { animationDuration: `${SLIDE_MS}ms` } : undefined}
+          />
+        ) : (
+          <img
+            src={moment.imageUrl}
+            alt={moment.message ?? 'Momento'}
+            className={`max-h-[65vh] object-contain ${animate ? 'animate-ken-burns' : ''}`}
+            style={animate ? { animationDuration: `${SLIDE_MS}ms` } : undefined}
+          />
+        )}
+        {/* Vignette for depth, so the photo/video reads as a "scene" rather than a flat pasted image. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ boxShadow: 'inset 0 0 8vmin 1vmin rgba(0,0,0,0.45)' }}
+        />
+      </div>
+
       {(moment.message || moment.guestName) && (
-        <div className="mt-6 text-center">
-          {moment.message && <p className="text-2xl italic">&ldquo;{moment.message}&rdquo;</p>}
-          <p className="mt-2 text-white/60">
-            {moment.guestName && `— ${moment.guestName}`}
-            {moment.tableNumber && ` · Mesa ${moment.tableNumber}`}
+        <div className="mt-7 max-w-2xl text-center animate-caption-rise" style={{ animationDelay: '0.5s' }}>
+          {moment.message && <p className="font-serif text-2xl italic leading-snug">&ldquo;{moment.message}&rdquo;</p>}
+          <p className="mt-2 text-sm uppercase tracking-[0.2em] text-gold/80">
+            {moment.guestName && moment.guestName}
+            {moment.guestName && moment.tableNumber && ' · '}
+            {moment.tableNumber && `Mesa ${moment.tableNumber}`}
           </p>
         </div>
       )}
@@ -164,9 +214,13 @@ function FeaturedMoment({ moment }: { moment: Moment }) {
 function MosaicGrid({ moments }: { moments: Moment[] }) {
   return (
     <div className="grid h-full w-full max-w-6xl grid-cols-3 gap-3">
-      {moments.map((moment) => (
-        <div key={moment.id} className="overflow-hidden rounded-xl bg-white/5">
-          <img src={moment.imageUrl} alt={moment.message ?? 'Momento'} className="h-full w-full object-cover" />
+      {moments.map((moment, i) => (
+        <div
+          key={moment.id}
+          className="animate-[fadeIn_0.6s_ease_both] overflow-hidden rounded-xl bg-white/5 shadow-lg shadow-black/40"
+          style={{ animationDelay: `${i * 60}ms` }}
+        >
+          <img src={moment.thumbnailUrl} alt={moment.message ?? 'Momento'} className="h-full w-full object-cover" />
         </div>
       ))}
       {Array.from({ length: Math.max(0, 9 - moments.length) }).map((_, i) => (
