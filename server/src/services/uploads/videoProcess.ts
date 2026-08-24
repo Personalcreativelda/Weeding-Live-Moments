@@ -73,16 +73,42 @@ export async function processVideo(buffer: Buffer, mime: string): Promise<Proces
   }
 }
 
+const EXEC_OPTIONS = { maxBuffer: 10 * 1024 * 1024 };
+
 async function getDurationSeconds(filePath: string): Promise<number | null> {
+  const fast = await probeFormatDuration(filePath);
+  if (fast !== null) return fast;
+
+  // Browser-recorded video (MediaRecorder output — e.g. Chrome's webm) commonly
+  // omits duration from the container header, so the fast metadata read above
+  // returns nothing useful. Decoding the whole file is slower but always accurate.
+  return decodeDuration(filePath);
+}
+
+async function probeFormatDuration(filePath: string): Promise<number | null> {
   try {
-    const { stdout } = await execFileAsync('ffprobe', [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1',
-      filePath,
-    ]);
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
+      EXEC_OPTIONS
+    );
     const value = Number.parseFloat(stdout.trim());
     return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function decodeDuration(filePath: string): Promise<number | null> {
+  try {
+    // ffmpeg exits 0 here (the "null" muxer discards output); progress/timing
+    // is written to stderr as it decodes frame by frame.
+    const { stderr } = await execFileAsync('ffmpeg', ['-i', filePath, '-f', 'null', '-'], EXEC_OPTIONS);
+    const matches = [...stderr.matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g)];
+    const last = matches.at(-1);
+    if (!last) return null;
+    const [, hours, minutes, seconds] = last;
+    return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
   } catch {
     return null;
   }

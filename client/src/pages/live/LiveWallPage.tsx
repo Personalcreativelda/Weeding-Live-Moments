@@ -96,7 +96,6 @@ export function LiveWallPage() {
   const highlighted = wallState?.highlightMomentId
     ? moments.find((m) => m.id === wallState.highlightMomentId) ?? null
     : null;
-  const showSlideProgress = mode === 'slideshow' && (wallState?.playing ?? true) && moments.length > 1;
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#100c09] text-white">
@@ -115,16 +114,6 @@ export function LiveWallPage() {
           <WaitingForMoments hashtag={event.hashtag} />
         )}
       </div>
-
-      {showSlideProgress && (
-        <div className="absolute inset-x-0 bottom-0 z-10 h-1 bg-white/10">
-          <div
-            key={index}
-            className="h-full bg-gold animate-progress-fill"
-            style={{ animationDuration: `${SLIDE_MS}ms` }}
-          />
-        </div>
-      )}
     </div>
   );
 }

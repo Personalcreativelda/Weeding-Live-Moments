@@ -6,6 +6,7 @@ import { useEvent } from '@/hooks/useEvent';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { uploadWithProgress } from '@/lib/uploadWithProgress';
 import { apiUrl } from '@/lib/api';
+import { CameraCapture } from '@/components/guest/CameraCapture';
 import type { Moment } from '@/types';
 
 type Step = 'landing' | 'choose' | 'form' | 'uploading' | 'success' | 'error';
@@ -65,6 +66,7 @@ export function GuestEventPage() {
   const [message, setMessage] = useState('');
   const [compressing, setCompressing] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -76,13 +78,13 @@ export function GuestEventPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function addFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return;
+  async function addFiles(files: File[]) {
+    if (files.length === 0) return;
     setCompressing(true);
     setPickError(null);
     try {
       const results = await Promise.all(
-        Array.from(fileList).map(async (file): Promise<PhotoItem | null> => {
+        files.map(async (file): Promise<PhotoItem | null> => {
           if (file.type.startsWith('video/')) {
             try {
               const duration = await getVideoDurationSeconds(file);
@@ -209,7 +211,7 @@ export function GuestEventPage() {
           compressing={compressing}
           error={pickError}
           onBack={() => setStep('landing')}
-          onCamera={() => cameraInputRef.current?.click()}
+          onCamera={() => setCameraOpen(true)}
           onGallery={() => galleryInputRef.current?.click()}
         />
       )}
@@ -223,7 +225,7 @@ export function GuestEventPage() {
           compressing={compressing}
           error={pickError}
           onRemove={removePhoto}
-          onAddCamera={() => cameraInputRef.current?.click()}
+          onAddCamera={() => setCameraOpen(true)}
           onAddGallery={() => galleryInputRef.current?.click()}
           onGuestNameChange={setGuestName}
           onMessageChange={setMessage}
@@ -246,6 +248,22 @@ export function GuestEventPage() {
         />
       )}
 
+      {cameraOpen && (
+        <CameraCapture
+          maxVideoSeconds={MAX_VIDEO_SECONDS}
+          onClose={() => setCameraOpen(false)}
+          onUnavailable={() => {
+            setCameraOpen(false);
+            cameraInputRef.current?.click();
+          }}
+          onCapture={(file) => {
+            setCameraOpen(false);
+            addFiles([file]);
+          }}
+        />
+      )}
+
+      {/* Fallback for when the in-page camera can't be used (no HTTPS, permission denied, no camera, …). */}
       <input
         ref={cameraInputRef}
         type="file"
@@ -253,7 +271,7 @@ export function GuestEventPage() {
         capture="environment"
         className="hidden"
         onChange={(e) => {
-          addFiles(e.target.files);
+          addFiles(Array.from(e.target.files ?? []));
           e.target.value = '';
         }}
       />
@@ -264,7 +282,7 @@ export function GuestEventPage() {
         multiple
         className="hidden"
         onChange={(e) => {
-          addFiles(e.target.files);
+          addFiles(Array.from(e.target.files ?? []));
           e.target.value = '';
         }}
       />
