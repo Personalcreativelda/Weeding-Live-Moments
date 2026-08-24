@@ -4,10 +4,10 @@ Plataforma privada de partilha de fotos em tempo real para casamentos. Um único
 
 ## Stack
 
-- **client/** — React + Vite + TypeScript + Tailwind CSS + React Router + Socket.IO client. Deploy: **Vercel**.
-- **server/** — Node.js + Express + TypeScript + Socket.IO + MinIO/Supabase Storage (via AWS S3 SDK) + **Supabase** (`@supabase/supabase-js`) para base de dados e autenticação do admin. Deploy: **VPS (Docker)**.
+- **client/** — React + Vite + TypeScript + Tailwind CSS + React Router + Socket.IO client. Projeto e container **totalmente independentes** (`client/Dockerfile`, `client/docker-compose.yml`) — deploy na Vercel ou em qualquer host Docker (ex: outro serviço no Coolify).
+- **server/** — Node.js + Express + TypeScript + Socket.IO + MinIO/Supabase Storage (via AWS S3 SDK) + **Supabase** (`@supabase/supabase-js`) para base de dados e autenticação do admin. Projeto e container **totalmente independentes** (`server/Dockerfile`, `server/docker-compose.yml`) — deploy num VPS/Coolify.
 
-Frontend e backend são dois deploys separados em domínios diferentes — o client fala com a API via `VITE_API_URL` (cross-origin, com cookies `SameSite=None; Secure`). Isto exige HTTPS dos dois lados em produção.
+Frontend e backend são dois projetos e dois containers separados, cada um com o seu próprio `.env`/`Dockerfile`/`docker-compose.yml`, normalmente em domínios diferentes — o client fala com a API via `VITE_API_URL` (cross-origin, com cookies `SameSite=None; Secure`). Isto exige HTTPS dos dois lados em produção.
 
 O backend nunca acede ao Postgres diretamente: todas as leituras/escritas passam pelo `supabaseAdmin` (chave *service role*), e o login do admin usa o Supabase Auth. As tabelas têm Row Level Security ativa sem políticas — só a service role (usada exclusivamente pelo backend) consegue ler/escrever, mesmo que a chave anon algum dia vaze.
 
@@ -25,7 +25,7 @@ O backend nunca acede ao Postgres diretamente: todas as leituras/escritas passam
    - `Project URL` → `SUPABASE_URL`
    - `anon public` key → `SUPABASE_ANON_KEY`
    - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (nunca exponha esta no frontend)
-4. Copie `.env.example` para `server/.env` e preencha essas três variáveis, mais `S3_*`, `DEVICE_HASH_SECRET`, etc.
+4. Copie `server/.env.example` para `server/.env` e preencha essas três variáveis, mais `S3_*`, `DEVICE_HASH_SECRET`, etc.
 
 Não é preciso criar utilizadores admin manualmente — o `npm run seed` (abaixo) cria o primeiro admin diretamente no Supabase Auth.
 
@@ -68,23 +68,25 @@ O sistema de mesas continua a existir no schema (é opcional): se quiser saber "
 
 Se o firewall do Windows bloquear, autorize o Node.js/portas 5173 e 4000 para redes privadas quando aparecer o prompt.
 
-## Produção: Coolify (API) + Vercel (frontend)
+## Produção: dois projetos, dois containers
+
+`client/` e `server/` são completamente independentes — cada um tem o seu próprio `Dockerfile`, `docker-compose.yml`, `.dockerignore` e `.env`. Nenhum dos dois depende de estar dentro do mesmo repositório clonado, do mesmo host ou de correr ao mesmo tempo para ser construído.
 
 Precisa de **dois domínios**, cada um com o seu HTTPS:
 
 | Domínio | Para quê | Exemplo |
 |---|---|---|
-| **Frontend** | O que os convidados e o admin abrem | `momentos.seudominio.com` (fica no Vercel) |
-| **API** | O backend — nunca é aberto diretamente por ninguém | `api.seudominio.com` (fica no Coolify) |
+| **Frontend** | O que os convidados e o admin abrem | `momentos.seudominio.com` |
+| **API** | O backend — nunca é aberto diretamente por ninguém | `api.seudominio.com` |
 
-### 1. API no Coolify
+### 1. API (`server/`) no Coolify
 
-1. **New Resource → Application**, aponte para este repositório. O Coolify deteta o `Dockerfile` na raiz automaticamente (constrói só o `server/`, o client fica de fora desta imagem).
-2. Em **Port**, defina `4100` (tem de bater certo com `PORT` no passo 3).
-3. Em **Health Check**, use o caminho `/api/health` — o Dockerfile já tem um `HEALTHCHECK` embutido, mas configurar aqui também ajuda o Coolify a saber quando o deploy está pronto.
-4. Em **Domains**, associe o seu domínio da API (ex: `api.seudominio.com`) — o Coolify emite o certificado SSL sozinho (Let's Encrypt).
-5. Em **Environment Variables**, copie o conteúdo de `.env.example` (raiz) e preencha:
-   - `APP_URL` e `CLIENT_URL` = o domínio do **frontend** (Vercel — passo 2, pode voltar aqui depois de saber o domínio final)
+1. **New Resource → Application**, aponte para este repositório com **Base Directory = `server`** (é aí que estão o `Dockerfile` e o `docker-compose.yml` deste projeto).
+2. Em **Port**, defina `4100` (tem de bater certo com `PORT` nas variáveis, passo 5).
+3. Em **Health Check**, use o caminho `/api/health` — o `Dockerfile` já tem um `HEALTHCHECK` embutido, mas configurar aqui também ajuda o Coolify a saber quando o deploy está pronto.
+4. Em **Domains**, associe o domínio da API (ex: `api.seudominio.com`) — o Coolify emite o certificado SSL sozinho (Let's Encrypt).
+5. Em **Environment Variables**, copie o conteúdo de `server/.env.example` e preencha:
+   - `APP_URL` e `CLIENT_URL` = o domínio do **frontend** (passo 2 — pode voltar aqui depois de saber o domínio final)
    - `PORT=4100`
    - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`
    - `DEVICE_HASH_SECRET` (gere um valor aleatório, ex: `openssl rand -hex 32`)
@@ -94,26 +96,43 @@ Precisa de **dois domínios**, cada um com o seu HTTPS:
    npm run seed
    ```
 
-Alternativamente, se preferir gerir via `docker compose` em vez da UI do Coolify (o Coolify também sabe importar um `docker-compose.yml`):
+Ou manualmente, sem a UI do Coolify:
 
 ```bash
+cd server
 cp .env.example .env
 # preencha como no passo 5 acima
 docker compose up --build
 ```
 
-### 2. Frontend no Vercel
+### 2. Frontend (`client/`) — Vercel ou Docker
+
+**Opção A — Vercel** (mais simples, não usa `client/Dockerfile`):
 
 1. Importe o repositório no Vercel, com **Root Directory = `client`**.
 2. Framework preset: Vite (auto-detetado). Build command e output dir ficam nos valores padrão.
 3. Associe o domínio do frontend ao projeto (**Settings → Domains**).
-4. Em **Environment Variables**, adicione:
-   ```
-   VITE_API_URL = https://api.seudominio.com
-   ```
-   (o domínio da API do passo 1, sem barra final)
+4. Em **Environment Variables**, adicione `VITE_API_URL = https://api.seudominio.com` (o domínio da API do passo 1, sem barra final).
 5. Deploy. O `client/vercel.json` já garante que rotas como `/e/casamento-ekson` ou `/admin` não dão 404 ao atualizar a página (SPA rewrite).
-6. Volte ao Coolify e confirme que `APP_URL`/`CLIENT_URL` batem certo com o domínio final do Vercel — se mudar depois, tem de atualizar e fazer redeploy da API.
+
+**Opção B — Docker** (ex: outro serviço no Coolify, ou qualquer host Docker), usando `client/Dockerfile` + `client/docker-compose.yml` (serve os ficheiros estáticos via Nginx, já com fallback de SPA em `client/nginx.conf`):
+
+> ⚠️ O Vite grava `VITE_API_URL` dentro do JavaScript compilado **durante o build** — não é uma variável de runtime do container. Se mudar o domínio da API depois, tem de reconstruir a imagem, não basta reiniciar o container.
+
+1. Copie `client/.env.example` para `client/.env` e defina `VITE_API_URL=https://api.seudominio.com`.
+2. No Coolify: **New Resource → Application**, **Base Directory = `client`**, **Port = `80`**. Sem "Environment Variables" de runtime — o `docker-compose.yml` já passa `VITE_API_URL` como *build arg* lido do `client/.env`.
+3. Associe o domínio do frontend, deploy.
+
+Ou manualmente:
+
+```bash
+cd client
+cp .env.example .env
+# preencha VITE_API_URL
+docker compose up --build   # http://localhost:8080
+```
+
+Depois de saber o domínio final do frontend (Vercel ou Docker), volte ao `server/.env`/Coolify e confirme que `APP_URL`/`CLIENT_URL` batem certo — se mudar depois, tem de atualizar e fazer redeploy da API.
 
 ### ⚠️ Aviso: Safari/iOS e cookies cross-origin
 
@@ -121,14 +140,14 @@ Como a API vive num domínio diferente do frontend, os cookies (sessão do admin
 
 Isto não afeta os convidados (eles não fazem login), só quem gere o painel `/admin`. Se isso for um problema na prática:
 - Mais simples: gerir o admin a partir do Chrome/Edge em vez de Safari.
-- Mais robusto (não implementado aqui): configurar um *rewrite* no Vercel para `/api/*` e `/socket.io/*` apontarem para a API, fazendo tudo parecer o mesmo domínio do ponto de vista do browser. Se precisar disto, avise — implica validar que o Socket.IO consegue manter WebSocket através do proxy do Vercel (ou cai para long-polling).
+- Mais robusto (não implementado aqui): configurar um *reverse proxy* na frente do frontend para `/api/*` e `/socket.io/*` apontarem para a API (um `rewrite` no Vercel, ou uma regra extra no Nginx do `client/Dockerfile` se for pela Opção B), fazendo tudo parecer o mesmo domínio do ponto de vista do browser. Se precisar disto, avise — implica validar que o Socket.IO consegue manter WebSocket através desse proxy (ou cai para long-polling).
 
 ## Fluxo ponta-a-ponta
 
 ```
-Convidado escaneia o QR geral (aponta para o domínio do Vercel)
+Convidado escaneia o QR geral (aponta para o domínio do frontend)
   → /e/:slug → tira/escolhe fotos (uma ou várias) → escreve mensagem
-  → upload para a API no VPS (compressão client-side + processamento server-side)
+  → upload para a API (compressão client-side + processamento server-side)
   → gravado no storage com UUID + registo "pending" no Supabase
   → admin recebe em tempo real (Socket.IO) na Moderação
   → admin aprova

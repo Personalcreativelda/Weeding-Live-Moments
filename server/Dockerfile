@@ -1,26 +1,26 @@
 # syntax=docker/dockerfile:1
 #
-# Builds only the API server. The client is a separate deployment on Vercel
-# (see README.md) — it is not part of this image.
+# API server only. Build context is this server/ directory —
+# the frontend (client/) is a fully separate container/deployment.
 
 # ---- Build ----
 FROM node:20-alpine AS build
-WORKDIR /app/server
-COPY server/package*.json ./
+WORKDIR /app
+COPY package*.json ./
 RUN npm ci
-COPY server/ ./
+COPY . .
 RUN npm run build
 
 # ---- Runtime ----
 FROM node:20-alpine AS runtime
 RUN apk add --no-cache dumb-init
-WORKDIR /app/server
+WORKDIR /app
 
 ENV NODE_ENV=production
 
-COPY server/package*.json ./
+COPY package*.json ./
 RUN npm ci --omit=dev
-COPY --from=build /app/server/dist ./dist
+COPY --from=build /app/dist ./dist
 
 EXPOSE 4100
 USER node
