@@ -9,4 +9,6 @@ services:
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
     ports:
-      - "8080:80"
+      # Host port — change WEB_PORT in client/.env if 18080 also clashes
+      # with something else on the VPS. Container always listens on 80.
+      - "${WEB_PORT:-18080}:80"
