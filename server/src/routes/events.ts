@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import archiver from 'archiver';
+import sharp from 'sharp';
 import { supabaseAdmin } from '../lib/supabase/client.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { getLiveState, updateLiveState, emitToEvent, type WallMode } from '../lib/websocket/socket.js';
 import { toPublicMoment, type MomentRow } from '../services/moments/present.js';
-import { getObjectStream } from '../lib/minio/client.js';
+import { getObjectStream, getObjectBuffer } from '../lib/minio/client.js';
 import { toCsv } from '../services/export/csv.js';
 import { env } from '../env.js';
 import { logger } from '../lib/logger.js';
@@ -487,8 +488,16 @@ eventsRouter.get('/events/:eventId/export', requireAdmin, async (req, res, next)
 
     for (const moment of moments.filter((m) => m.status === 'approved')) {
       try {
-        const stream = await getObjectStream(moment.storage_key);
-        archive.append(stream, { name: `photos/${moment.id}.webp` });
+        if (moment.media_type === 'video') {
+          const ext = moment.storage_key.split('.').pop() ?? 'mp4';
+          const stream = await getObjectStream(moment.storage_key);
+          archive.append(stream, { name: `photos/${moment.id}.${ext}` });
+        } else {
+          // Re-encode stored webp to JPEG so the ZIP contains .jpg files.
+          const webpBuffer = await getObjectBuffer(moment.storage_key);
+          const jpeg = await sharp(webpBuffer).jpeg({ quality: 90 }).toBuffer();
+          archive.append(jpeg, { name: `photos/${moment.id}.jpg` });
+        }
       } catch {
         logger.warn('export: failed to fetch photo', { momentId: moment.id });
       }

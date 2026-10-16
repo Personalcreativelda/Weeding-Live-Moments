@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Heart, X, Play } from 'lucide-react';
+import { Heart, X, Play, Download } from 'lucide-react';
 import { useEvent } from '@/hooks/useEvent';
 import { useEventRoom } from '@/hooks/useEventRoom';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
-import { api } from '@/lib/api';
+import { api, apiUrl } from '@/lib/api';
 import type { Moment } from '@/types';
 
 export function PublicGalleryPage() {
@@ -45,18 +45,32 @@ export function PublicGalleryPage() {
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {moments.map((moment) => (
-            <button
+            <div
               key={moment.id}
-              onClick={() => setSelected(moment)}
-              className="relative aspect-square overflow-hidden rounded-xl bg-blush shadow-sm"
+              className="group relative aspect-square overflow-hidden rounded-xl bg-blush shadow-sm"
             >
-              <img src={moment.thumbnailUrl} alt={moment.message ?? 'Momento'} className="h-full w-full object-cover" loading="lazy" />
-              {moment.mediaType === 'video' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                  <Play className="h-8 w-8 fill-white text-white drop-shadow" />
-                </div>
-              )}
-            </button>
+              <button
+                onClick={() => setSelected(moment)}
+                className="h-full w-full cursor-zoom-in"
+                aria-label="Ver momento"
+              >
+                <img src={moment.thumbnailUrl} alt={moment.message ?? 'Momento'} className="h-full w-full object-cover" loading="lazy" />
+                {moment.mediaType === 'video' && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                    <Play className="h-8 w-8 fill-white text-white drop-shadow" />
+                  </div>
+                )}
+              </button>
+              <a
+                href={apiUrl(`/events/${event.id}/moments/${moment.id}/download`)}
+                download
+                title="Descarregar"
+                aria-label="Descarregar"
+                className="absolute bottom-2 right-2 rounded-full bg-black/50 p-2 text-white transition-opacity hover:bg-black/70 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              >
+                <Download className="h-4 w-4" />
+              </a>
+            </div>
           ))}
         </div>
       )}
@@ -86,6 +100,15 @@ export function PublicGalleryPage() {
                 {selected.tableNumber && ` · Mesa ${selected.tableNumber}`}
               </p>
             </div>
+            <a
+              href={apiUrl(`/events/${event.id}/moments/${selected.id}/download`)}
+              download
+              title="Descarregar"
+              aria-label="Descarregar"
+              className="absolute left-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            >
+              <Download className="h-5 w-5" />
+            </a>
             <button
               onClick={() => setSelected(null)}
               className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white"

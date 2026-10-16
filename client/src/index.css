@@ -44,6 +44,22 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .animate-fade-in {
+    animation-name: fadeIn;
+    animation-duration: 0.45s;
+    animation-timing-function: ease-out;
+    animation-fill-mode: both;
+  }
+
   .animate-ken-burns {
     animation-name: kenBurns;
     animation-timing-function: linear;

@@ -3,7 +3,8 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { fileTypeFromBuffer } from 'file-type';
 import { supabaseAdmin } from '../lib/supabase/client.js';
-import { uploadObject } from '../lib/minio/client.js';
+import { uploadObject, getObjectStream, getObjectBuffer } from '../lib/minio/client.js';
+import sharp from 'sharp';
 import { processImage } from '../services/uploads/imageProcess.js';
 import { processVideo } from '../services/uploads/videoProcess.js';
 import { toPublicMoment, type MomentRow } from '../services/moments/present.js';
@@ -183,6 +184,60 @@ momentsRouter.get('/events/:eventId/gallery', async (req, res, next) => {
     if (error) throw error;
 
     res.json(await Promise.all((data as MomentRow[]).map(toPublicMoment)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const DOWNLOAD_CONTENT_TYPES: Record<string, string> = {
+  webp: 'image/webp',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
+
+// GET /api/events/:eventId/moments/:momentId/download — public, approved only
+// Streams the original file with Content-Disposition: attachment so the browser
+// saves it instead of navigating to the signed object URL.
+momentsRouter.get('/events/:eventId/moments/:momentId/download', async (req, res, next) => {
+  try {
+    const { eventId, momentId } = req.params;
+
+    const { data: moment, error } = await supabaseAdmin
+      .from('moments')
+      .select('id, event_id, media_type, storage_key, created_at')
+      .eq('id', momentId)
+      .eq('event_id', eventId)
+      .eq('status', 'approved')
+      .maybeSingle();
+    if (error) throw error;
+    if (!moment) throw new HttpError(404, 'Moment not found');
+
+    const extension =
+      moment.storage_key.split('.').pop() ?? (moment.media_type === 'video' ? 'mp4' : 'webp');
+    const base = `momento-${moment.created_at.slice(0, 10)}`;
+
+    if (moment.media_type === 'video') {
+      const contentType = DOWNLOAD_CONTENT_TYPES[extension] ?? 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${base}.${extension}"`);
+
+      const stream = await getObjectStream(moment.storage_key);
+      stream.on('error', next);
+      stream.pipe(res);
+      return;
+    }
+
+    // Images are stored as webp; re-encode to JPEG so downloads land as .jpg
+    const webpBuffer = await getObjectBuffer(moment.storage_key);
+    const jpeg = await sharp(webpBuffer).jpeg({ quality: 90 }).toBuffer();
+
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${base}.jpg"`);
+    res.end(jpeg);
   } catch (err) {
     next(err);
   }

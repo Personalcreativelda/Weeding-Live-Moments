@@ -3,9 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 import imageCompression from 'browser-image-compression';
 import { Camera, Heart, Image as ImageIcon, ArrowLeft, X, Plus, Play } from 'lucide-react';
 import { useEvent } from '@/hooks/useEvent';
+import { useEventRoom } from '@/hooks/useEventRoom';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { uploadWithProgress } from '@/lib/uploadWithProgress';
-import { apiUrl } from '@/lib/api';
+import { api, apiUrl } from '@/lib/api';
 import { CameraCapture } from '@/components/guest/CameraCapture';
 import type { Moment } from '@/types';
 
@@ -67,16 +68,22 @@ export function GuestEventPage() {
   const [compressing, setCompressing] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [latestMoments, setLatestMoments] = useState<Moment[]>([]);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    return () => {
-      for (const p of photos) URL.revokeObjectURL(p.previewUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!event) return;
+    api
+      .get<Moment[]>(`/events/${event.id}/gallery`)
+      .then(setLatestMoments)
+      .catch(() => {});
+  }, [event]);
+
+  useEventRoom(event?.id, {
+    'moment.approved': (moment: Moment) => setLatestMoments((prev) => [moment, ...prev]),
+  });
 
   async function addFiles(files: File[]) {
     if (files.length === 0) return;
@@ -203,7 +210,7 @@ export function GuestEventPage() {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-10 safe-bottom">
       {step === 'landing' && (
-        <Landing event={event} slug={slug} tableNumber={tableNumber} onStart={() => setStep('choose')} />
+        <Landing event={event} slug={slug} tableNumber={tableNumber} latestMoments={latestMoments} onStart={() => setStep('choose')} />
       )}
 
       {step === 'choose' && (
@@ -302,11 +309,13 @@ function Landing({
   event,
   slug,
   tableNumber,
+  latestMoments,
   onStart,
 }: {
   event: { coupleName1: string; coupleName2: string; welcomeMessage: string | null; hashtag: string | null };
   slug: string | undefined;
   tableNumber: string | undefined;
+  latestMoments: Moment[];
   onStart: () => void;
 }) {
   return (
@@ -337,6 +346,93 @@ function Landing({
 
       <div className="mt-8 flex gap-4 text-sm text-gold-dark underline underline-offset-4">
         <Link to={`/e/${slug}/guestbook`}>Deixar uma mensagem</Link>
+      </div>
+
+      {latestMoments.length > 0 && <LatestMomentsSlider slug={slug} moments={latestMoments} />}
+    </div>
+  );
+}
+
+function LatestMomentsSlider({ slug, moments }: { slug: string | undefined; moments: Moment[] }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const SPEED_PX_PER_SEC = 30;
+
+  // Duplicate the list so the strip can scroll forever without an abrupt jump:
+  // when it reaches the end of one full set, it loops back seamlessly.
+  const repeats = moments.length >= 6 ? 2 : 3;
+  const looped = Array.from({ length: repeats }, () => moments).flat();
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el || moments.length === 0) return;
+
+    let raf = 0;
+    let last = performance.now();
+    let paused = false;
+    const setWidth = el.scrollWidth / repeats;
+
+    const pause = () => {
+      paused = true;
+    };
+    const resume = () => {
+      paused = false;
+      last = performance.now();
+    };
+    el.addEventListener('pointerenter', pause);
+    el.addEventListener('pointerleave', resume);
+    el.addEventListener('touchstart', pause, { passive: true });
+    el.addEventListener('touchend', resume);
+
+    function loop(now: number) {
+      const dt = (now - last) / 1000;
+      last = now;
+      if (!paused) {
+        el!.scrollLeft += SPEED_PX_PER_SEC * dt;
+        if (el!.scrollLeft >= setWidth) el!.scrollLeft -= setWidth;
+      }
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('pointerenter', pause);
+      el.removeEventListener('pointerleave', resume);
+      el.removeEventListener('touchstart', pause);
+      el.removeEventListener('touchend', resume);
+    };
+  }, [moments, repeats]);
+
+  if (moments.length === 0) return null;
+
+  return (
+    <div className="mt-10 w-full text-left">
+      <div className="flex items-center justify-between">
+        <h2 className="font-serif text-lg text-ink">Últimos momentos</h2>
+        <Link to={`/e/${slug}/gallery`} className="text-sm text-gold-dark underline underline-offset-4">
+          Ver galeria
+        </Link>
+      </div>
+
+      <div
+        ref={trackRef}
+        className="no-scrollbar mt-3 flex gap-3 overflow-x-auto"
+      >
+        {looped.map((m, i) => (
+          <Link
+            key={`${m.id}-${i}`}
+            to={`/e/${slug}/gallery`}
+            className="relative aspect-square w-36 shrink-0 overflow-hidden rounded-2xl bg-blush sm:w-44"
+            aria-label="Ver momento"
+          >
+            <img src={m.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+            {m.mediaType === 'video' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                <Play className="h-6 w-6 fill-white text-white drop-shadow" />
+              </div>
+            )}
+          </Link>
+        ))}
       </div>
     </div>
   );

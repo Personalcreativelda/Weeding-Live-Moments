@@ -36,6 +36,14 @@ export async function getObjectStream(key: string): Promise<Readable> {
   return result.Body as Readable;
 }
 
+/** Reads an object fully into memory. Use only for bounded files (images). */
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const stream = await getObjectStream(key);
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks);
+}
+
 export async function deleteObject(key: string) {
   await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
